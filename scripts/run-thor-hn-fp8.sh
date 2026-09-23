@@ -21,17 +21,10 @@ export CMAKE_BUILD_PARALLEL_LEVEL=1
 MODEL=${MODEL:-${HOME}/models/Qwen3.8-Flash-Next-NVFP4-Spark}
 PYTHON=${PYTHON:-${RUNTIME_ROOT}/venv/bin/python}
 DRAFT=${DRAFT:-${HOME}/models/sglang-ssd-stream-runtime/huggingface/hub/models--garnermccloud--Qwen3.8-Flash-Next-NVFP4-SSD-Stream/snapshots/83325b75b7cb498ef5d7a5477171cadf92ad21f5/mtp}
-ADMIN_API_KEY_FILE=${ADMIN_API_KEY_FILE:-${HOME}/.config/sglang-ssd-stream/admin-api-key}
 
 test -f "${MODEL}/config.json"
 test -f "${DRAFT}/config.json"
 test -x "${PYTHON}"
-test -r "${ADMIN_API_KEY_FILE}"
-IFS= read -r ADMIN_API_KEY < "${ADMIN_API_KEY_FILE}"
-[[ "${ADMIN_API_KEY}" =~ ^[[:xdigit:]]{64}$ ]] || {
-  echo "Expected a 64-character hexadecimal admin key in ${ADMIN_API_KEY_FILE}" >&2
-  exit 1
-}
 
 # The 544-Ki-token KV pool is shared by up to four running requests. With the
 # 262-K per-request context limit it can hold two nearly-full coding contexts.
@@ -43,7 +36,6 @@ exec "${PYTHON}" -m sglang.launch_server \
   --served-model-name Qwen/Qwen3.6-27B-NVFP4 \
   --host 0.0.0.0 \
   --port 8000 \
-  --admin-api-key "${ADMIN_API_KEY}" \
   --quantization modelopt_fp4 \
   --fp4-gemm-backend flashinfer_cutlass \
   --attention-backend triton \
