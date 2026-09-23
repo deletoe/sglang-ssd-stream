@@ -216,10 +216,21 @@ tested launcher:
 
 ```bash
 scripts/install-thor-qsa-fp8.sh
+install -d -m 700 "${HOME}/.config/sglang-ssd-stream"
+openssl rand -hex 32 > "${HOME}/.config/sglang-ssd-stream/admin-api-key"
+chmod 600 "${HOME}/.config/sglang-ssd-stream/admin-api-key"
 DRAFT=/path/to/prepared-model/mtp scripts/run-thor-hn-fp8.sh
 ```
 
-`MODEL`, `DRAFT`, `PYTHON`, and `SGLANG_SSD_STREAM_RUNTIME_ROOT` can be
+The launcher requires the 64-character admin key and passes it to SGLang's
+`--admin-api-key`, which protects administrative routes such as
+`/update_weights_from_tensor`. It does not authenticate ordinary generation
+requests. Keep the API on a trusted network or add separate client
+authentication before exposing it publicly. The key can be visible in process
+arguments and startup logs, so restrict access to those as well.
+
+`MODEL`, `DRAFT`, `PYTHON`, `ADMIN_API_KEY_FILE`, and
+`SGLANG_SSD_STREAM_RUNTIME_ROOT` can be
 overridden for a different local layout. `DRAFT` is required because the tested
 dense-path checkpoint and MTP weights came from separate snapshots.
 
