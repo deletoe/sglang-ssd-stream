@@ -16,6 +16,46 @@ The model and extension are packaged to work together:
 - **Model features:** NVFP4, native MTP, tools, images, and long context
 - **Extra fixed memory for the 48 GB table:** about 64 MiB
 
+## v0.3.0 runtime update
+
+v0.3.0 packages 17 runtime modules, including two required compatibility
+interfaces, in a hardware-selected, private SGLang
+runtime view. The base SGLang installation is untouched, and model weights
+are unchanged. On the RTX PRO 6000 Blackwell (96 GB), the default now enables
+adaptive four/eight-token MTP, corrected sparse-index packing, ReplaySSM,
+shared scratch/capture-stream resources, and early draft-head initialization.
+Strict acceptance thresholds remain 1, SSM remains FP32, and KV remains FP8.
+The default context is still 131,072 tokens. DGX Spark and portable-profile
+arguments are unchanged.
+
+Clean Ubuntu 24.04 installation and full-model checks passed on the RTX PRO
+6000: SSD GPU smoke, five GPU packing tests, 12 functional checks including
+tools, images, reasoning, and retrieval at 120,081 and 255,681 prompt tokens.
+Both x86_64 and aarch64 wheels passed 65 CPU tests each; this is not aarch64
+hardware acceptance. The 131K run recorded 30 window switches in each direction
+and CUDA-graph replay for all 275 logged decode batches.
+
+### Measured v0.3.0 default profile
+
+Compared with `--no-rtx-optimizations`, using the same prepared model, GPU,
+131,072-token context, strict acceptance, and 1,024-token completions:
+
+| Workload | Fixed-four tok/s | Default tok/s | Median change |
+| --- | ---: | ---: | ---: |
+| List | 148.40 | 151.71 | +2.23% |
+| Prose | 166.52 | 155.89 | -6.39% |
+| Code | 208.78 | 217.59 | +4.22% |
+| Reasoning | 134.02 | 136.59 | +1.92% |
+
+**The results are mixed, not a universal speedup: prose regressed in this
+sample.** Each arm/workload has six measured requests, excluding warmups.
+Outputs varied, and these small synthetic samples are not a general quality
+evaluation. The final control ran in a separate supervised pause after a
+connection interruption. [Measurements, validation results, and artifact identity](benchmarks/results/rtx-pro-6000-v0.3.0.json)
+include the complete protocol; [the client](benchmarks/validate_rtx.py) and
+fixed input token IDs are included. Historical results below use a different
+runtime and are not v0.3.0 default-profile results.
+
 ## Start serving
 
 Use Linux with one NVIDIA GPU, a local SSD, and a standard C++ compiler. The
@@ -32,9 +72,9 @@ curl -LsSf https://raw.githubusercontent.com/garnermccloud/sglang-ssd-stream/mai
 ```
 
 That starts an OpenAI-compatible API at `http://127.0.0.1:30000/v1`. Hardware
-detection selects the validated 131K-context RTX PRO 6000 profile, the
-experimental 262K-context DGX Spark profile, or a conservative CPU-offload
-profile for smaller Linux x86_64 GPUs. The model stays pinned to the downloaded
+detection selects the validated 131K-context RTX PRO 6000 profile,
+the experimental 262K-context DGX Spark profile, or a
+conservative CPU-offload profile for smaller Linux x86_64 GPUs. The model stays pinned to the downloaded
 revision until you choose to update it. SGLang compiles a few GPU-specific
 kernels on first launch with one build job, then reuses its cache. Existing
 system CUDA installations and additional SGLang settings are left alone.
@@ -59,6 +99,17 @@ sglang-ssd-stream serve \
   --context 131072
 ```
 
+For rollback or comparison, opt out of the RTX ports and use the old fixed-four
+runtime:
+
+```bash
+sglang-ssd-stream serve --no-rtx-optimizations
+```
+
+`sglang-ssd-stream serve --context 262144` is a tested explicit RTX override;
+it passed retrieval with a 255,681-token prompt and does not change the
+131,072-token default.
+
 Pass additional SGLang arguments after `--`:
 
 ```bash
@@ -72,16 +123,40 @@ update the isolated SGLang and plugin environment:
 
 ```bash
 curl -LsSf https://raw.githubusercontent.com/garnermccloud/sglang-ssd-stream/main/install.sh | sh
-sglang-ssd-stream update-model
+~/.local/bin/sglang-ssd-stream serve
 ```
 
-`update-model` downloads and validates the new prepared snapshot before making
-it active. Existing model files are not deleted automatically, so a changed or
-withdrawn upstream model cannot erase the revision already on disk.
+The v0.3.0 installer is version-bound to the 0.3.0 wheel. It builds and checks
+a new virtual environment at its permanent path, then atomically promotes the
+launcher. Previous environments are preserved; an installation failure leaves
+the old launcher in place. A standard C++ compiler is still required.
 
-## Measured performance
+No model update is needed for v0.3.0. To explicitly update the model separately,
+run `sglang-ssd-stream update-model`. It downloads and validates the new
+prepared snapshot before making it active. Existing model files are not deleted
+automatically, so a changed or withdrawn upstream model cannot erase the
+revision already on disk.
 
-### RTX PRO 6000 Blackwell
+## Historical measured performance
+
+### September 2026 RTX PRO optimization bundle
+
+The [qualified adaptive-MTP source bundle](optimizations/rtx-pro-6000-20260909/README.md)
+publishes the exact runtime changes deployed on September 9, with file hashes,
+before/after patches, and 48 measured timing records. In a matched code-generation
+workload, median throughput rose from **238.76 to 282.12 tok/s (+18.16%)**.
+List, prose, and reasoning changes were +6.01%, +3.71%, and +0.38%; this is not a
+universal speedup or an agent-quality claim. Model weights did not change.
+
+This versioned source overlay targets a separate historical SGLang/SSD runtime.
+That production runtime also used FRSpec with a 65,536-entry vocabulary,
+draft-head NVFP4, and `lowm`; these are not in the v0.3.0 installer. v0.3.0
+enables the ported runtime by default on the RTX PRO 6000, but does not
+reproduce that entire production setup. **282.12 tok/s and +18.16% are historical
+bundle results, not claims for the new default.** Its matched results are not
+directly comparable with the earlier SSD-versus-RAM measurements below.
+
+### Earlier RTX PRO 6000 Blackwell SSD-versus-RAM results
 
 Matched tests on an RTX PRO 6000 Blackwell used Qwen3.8 Flash-Next NVFP4,
 native MTP, CUDA graphs, and a 1,024-token completion:
@@ -101,7 +176,8 @@ the SSD work can be hidden well enough that the lookup table is no longer the
 decode bottleneck. Requests dominated by new, random lookup rows measured
 126-137 tok/s.
 
-The accepted RTX PRO 6000 configuration also passed:
+The earlier accepted RTX PRO 6000 configuration also passed (these are not
+v0.3.0 acceptance results):
 
 - native MTP and CUDA graph capture/replay;
 - structured tool calls with changing arguments;
@@ -193,15 +269,18 @@ to a page-safe value before computing `max_new_tokens`. This prevents a request
 whose page-rounded prompt plus the scheduler's reserved page exceeds the token
 pool from entering the waiting queue permanently.
 
-The validated Thor profile uses FP8 E4M3 target and draft KV, 2,048-token
+The Thor profile uses FP8 E4M3 target and draft KV, 2,048-token
 chunked prefill, FP32 Mamba state, NEXTN 3/1/4, ReplaySSM for the speculative
 path, decode CUDA graphs, and native 262,144-token per-request context. Four
 running-request slots share a 557,056-token (544 Ki-token) KV pool; this holds
 two nearly full 262K contexts, or four shorter contexts whose aggregate stays
-inside the pool. NEXTN requires four Mamba state slots per request, so the
-profile reserves 16.
+inside the pool. NEXTN requires four Mamba state slots per request; the
+launcher reserves 32 to leave room for prefix-cache checkpoints and transient
+slot donation during chunked prefill. The four-request setting is an admission
+limit, not a guarantee that four full-length contexts fit in the shared KV pool.
 
-On one 128 GB Thor, two concurrent clients completed three cycles apiece of a
+With the earlier 16-slot setting, two concurrent clients on one 128 GB Thor
+completed three cycles apiece of a
 roughly 250K-token continuation followed by model-generated context compaction.
 Peak KV use was 503,232 tokens (90.34%); all 12 requests completed, KV returned
 to zero, the service did not restart, and neither the service nor kernel journal
@@ -264,7 +343,7 @@ frequently used pages in reclaimable filesystem cache.
 | SGLang on RTX PRO 6000 | Upstream Flash-Next source with [QSA FP8 KV support](https://github.com/sgl-project/sglang/pull/36644), pinned to commit `3df8e1e7dbc5807696622afe2929b6c33c185ca3` |
 | SGLang on DGX Spark | Upstream Flash-Next source with the [SM121 QSA kernel](https://github.com/sgl-project/sglang/pull/36845), pinned to commit `0a79825b7baa3e2aafd54e89097a5aba83d00b4e` |
 | SGLang on Jetson AGX Thor | Same aarch64 pin plus the guarded QSA FP8-KV port in `patches/sglang-qsa-fp8-thor.patch` |
-| Linux x86_64 / RTX PRO 6000 | Validated |
+| Linux x86_64 / RTX PRO 6000 | v0.3.0 clean-install functional checks passed at 131K and explicit 262K; performance is workload-dependent |
 | Linux aarch64 / DGX Spark | Experimental profile; hardware acceptance pending |
 | Linux x86_64 / SM80+ with CPU offload | Experimental; 24 and 32 GB hardware acceptance pending |
 | Linux aarch64 / Jetson AGX Thor | Validated for one 128 GB SM110 device, four request slots sharing 544 Ki-token KV, native 262K per-request context |

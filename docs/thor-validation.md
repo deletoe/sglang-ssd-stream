@@ -9,7 +9,7 @@ not a general performance or accuracy claim for all Thor configurations.
 - Per-request context: 262,144 tokens
 - Shared KV pool: 557,056 tokens (544 Ki-token)
 - Running request slots: 4
-- Mamba state slots: 16
+- Mamba state slots: 32 in the current launcher (16 during the dual-client validation below)
 - Target and draft KV: FP8 E4M3
 - Chunked prefill: 2,048 tokens
 - Decode CUDA graph maximum batch size: 4
@@ -19,6 +19,13 @@ not a general performance or accuracy claim for all Thor configurations.
 Four request slots share the pool. Four full 262K requests do not fit; two
 nearly full contexts do, while four simultaneous contexts have an average
 budget of 139,264 tokens each.
+
+The dual-client measurements below used 16 Mamba slots. Two later production
+restarts on 2026-09-23 ended in `Can not alloc mamba cache` while three requests
+were running. The current launcher reserves 32 slots to leave room for cached
+prefix checkpoints and transient slot donation. A post-reboot health check
+confirmed that the 32-slot pool was allocated and the API responded, but a
+four-client long-context soak with this setting has not yet been completed.
 
 ## Dual-client long-context soak
 
