@@ -29,7 +29,8 @@ test -x "${PYTHON}"
 # The 544-Ki-token KV pool is shared by up to four running requests. With the
 # 262-K per-request context limit it can hold two nearly-full coding contexts.
 # NEXTN needs four Mamba state slots per request (one target plus three draft
-# states), hence 16 slots for four-way concurrency.
+# states). Keep additional slots for prefix-cache checkpoints and transient
+# slot donation during chunked prefill.
 exec "${PYTHON}" -m sglang.launch_server \
   --trust-remote-code \
   --model-path "${MODEL}" \
@@ -46,7 +47,7 @@ exec "${PYTHON}" -m sglang.launch_server \
   --mamba-radix-cache-strategy extra_buffer_lazy \
   --mamba-track-interval 64 \
   --mamba-ssm-dtype float32 \
-  --max-mamba-cache-size 16 \
+  --max-mamba-cache-size 32 \
   --chunked-prefill-size 2048 \
   --max-running-requests 4 \
   --sleep-on-idle \
